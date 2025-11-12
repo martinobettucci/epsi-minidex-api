@@ -1033,6 +1033,272 @@ async def generate(req: Request):
         log_error("generate.unexpected_error", error=str(e))
         return _error_response(500, "GENERATION_FAILED", "Une erreur est survenue lors de la génération du Minimon.")
 
+        
+@app.post("/v1/certify-score")
+async def certify_score(req: Request):
+    """
+    Reçoit un JSON, signe une charge utile canonique avec la clé privée TLS (certs/key.pem),
+    enregistre un enregistrement append-only dans un ledger JSONL,
+    et renvoie signature + métadonnées de vérification.
+    Corps attendu: {"score": <number|string>, "subject": <string optional>, "nonce": <string optional>}
+    """
+    import hashlib
+    import traceback
+
+    req_id = getattr(req.state, "req_id", _new_id())
+    t_enter = time.perf_counter()
+    try:
+        # Imports cryptography paresseux pour éviter les deps au boot
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.asymmetric import padding, ec, rsa, ed25519, ed448
+            from cryptography.hazmat.backends import default_backend
+        except Exception as e:
+            log_error("certify.import_crypto_failed", req_id=req_id, error=str(e))
+            return _error_response(500, "SIGNING_BACKEND_MISSING", f"Dépendances cryptographiques indisponibles: {e}")
+
+        # Sécurité et rate limit
+        _auth_check(req)
+        client_ip = req.client.host if req.client else "anonymous"
+        _rate_limit_check(client_ip)
+
+        # Utilitaires locaux
+        def _minify_for_logs(obj: dict) -> dict:
+            """Retire les gros blobs base64 des logs/ledger et ne garde qu'une empreinte."""
+            def _hash_b64(s: str) -> dict:
+                try:
+                    raw = base64.b64decode(s, validate=False)
+                    return {"sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
+                except Exception:
+                    return {"sha256": hashlib.sha256(s.encode("utf-8")).hexdigest(), "string_len": len(s)}
+            def _walk(v, k=""):
+                if isinstance(v, dict):
+                    out = {}
+                    for kk, vv in v.items():
+                        key = kk.lower()
+                        if isinstance(vv, str) and len(vv) > 1024 and ("image" in key or "base64" in key):
+                            out[kk] = {"omitted": True, "fingerprint": _hash_b64(vv)}
+                        else:
+                            out[kk] = _walk(vv, kk)
+                    return out
+                if isinstance(v, list):
+                    return [_walk(x, k) for x in v]
+                return v
+            try:
+                return _walk(obj)
+            except Exception as e:
+                return {"minify_error": str(e)}
+
+        def _sha256_compact_json(d: dict) -> str:
+            s = json.dumps(d, separators=(",", ":"), sort_keys=True)
+            return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+        # Lecture du corps
+        t0 = time.perf_counter()
+        try:
+            body = await req.json()
+        except Exception as e:
+            dt = int((time.perf_counter() - t0) * 1000)
+            log_warning("certify.invalid_json", req_id=req_id, elapsed_ms=dt, error=str(e))
+            return _error_response(400, "INVALID_JSON", "Corps JSON invalide.")
+
+        log_debug("certify.body_received",
+                  req_id=req_id,
+                  size=(len(json.dumps(body)) if isinstance(body, (dict, list)) else None))
+
+        if not isinstance(body, dict):
+            log_warning("certify.invalid_payload_type", req_id=req_id, got_type=str(type(body)))
+            return _error_response(400, "INVALID_PAYLOAD", "Le corps JSON doit être un objet.")
+
+        if "score" not in body:
+            log_warning("certify.missing_score", req_id=req_id)
+            return _error_response(400, "MISSING_SCORE", "Le champ 'score' est requis.")
+
+        # Normalisation du score
+        t0 = time.perf_counter()
+        score_raw = body["score"]
+        try:
+            score_val = float(score_raw)
+        except Exception as e:
+            dt = int((time.perf_counter() - t0) * 1000)
+            log_warning("certify.invalid_score", req_id=req_id, elapsed_ms=dt, value=repr(score_raw), error=str(e))
+            return _error_response(400, "INVALID_SCORE", "Le champ 'score' doit être numérique.")
+
+        subject = body.get("subject")
+        nonce = body.get("nonce") or _new_id()
+        issued_at = _now_utc_iso()
+
+        # Payload canonique à signer
+        payload = {
+            "id": _new_id(),
+            "score": score_val,
+            "nonce": nonce,
+            "issuedAt": issued_at,
+        }
+        if subject is not None:
+            payload["subject"] = subject
+
+        canonical_str = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        canonical_bytes = canonical_str.encode("utf-8")
+        canonical_sha = hashlib.sha256(canonical_bytes).hexdigest()
+        log_debug("certify.canonical_ready", req_id=req_id, sha256=canonical_sha, length=len(canonical_bytes))
+
+        # Digest du JSON d'entrée minifié pour corrélation
+        minified_input = _minify_for_logs(body)
+        input_digest = _sha256_compact_json(minified_input)
+        log_debug("certify.input_digest", req_id=req_id, sha256=input_digest)
+
+        # Chemins clé/cert
+        key_path = os.getenv("MINIMON_SSL_KEY_PATH", "certs/key.pem")
+        cert_path = os.getenv("MINIMON_SSL_CERT_PATH", "certs/cert.pem")
+        log_debug("certify.paths", req_id=req_id, key_path=key_path, cert_path=cert_path)
+
+        # Chargement clé privée
+        t0 = time.perf_counter()
+        try:
+            with open(key_path, "rb") as f:
+                key_data = f.read()
+            private_key = serialization.load_pem_private_key(key_data, password=None, backend=default_backend())
+        except FileNotFoundError:
+            dt = int((time.perf_counter() - t0) * 1000)
+            log_error("certify.key_not_found", req_id=req_id, elapsed_ms=dt, path=key_path)
+            return _error_response(500, "KEY_NOT_FOUND", f"Clé privée introuvable: {key_path}")
+        except Exception as e:
+            dt = int((time.perf_counter() - t0) * 1000)
+            log_error("certify.key_load_failed", req_id=req_id, elapsed_ms=dt, error=str(e))
+            return _error_response(500, "KEY_LOAD_FAILED", f"Impossible de charger la clé privée: {e}")
+
+        key_desc = type(private_key).__name__
+        curve = getattr(getattr(private_key, "curve", None), "name", None)
+        log_info("certify.key_loaded", req_id=req_id, key_type=key_desc, curve=curve)
+
+        # Signature
+        t0 = time.perf_counter()
+        try:
+            alg, sig_format = None, "RAW"
+            if isinstance(private_key, rsa.RSAPrivateKey):
+                sig = private_key.sign(canonical_bytes, padding.PKCS1v15(), hashes.SHA256())
+                alg, sig_format = "RS256", "RAW"
+            elif isinstance(private_key, ec.EllipticCurvePrivateKey):
+                sig = private_key.sign(canonical_bytes, ec.ECDSA(hashes.SHA256()))
+                c = (curve or "").lower()
+                if "secp256r1" in c or "prime256v1" in c:
+                    alg = "ES256"
+                elif "secp384r1" in c:
+                    alg = "ES384"
+                elif "secp521r1" in c:
+                    alg = "ES512"
+                else:
+                    alg = "ECDSA"
+                sig_format = "DER"
+            elif isinstance(private_key, ed25519.Ed25519PrivateKey):
+                sig = private_key.sign(canonical_bytes); alg = "Ed25519"; sig_format = "RAW"
+            elif isinstance(private_key, ed448.Ed448PrivateKey):
+                sig = private_key.sign(canonical_bytes); alg = "Ed448"; sig_format = "RAW"
+            else:
+                log_error("certify.unsupported_key_type", req_id=req_id, key_type=key_desc)
+                return _error_response(500, "UNSUPPORTED_KEY_TYPE", "Type de clé non supporté pour la signature.")
+        except Exception as e:
+            dt = int((time.perf_counter() - t0) * 1000)
+            log_error("certify.signing_failed", req_id=req_id, elapsed_ms=dt, error=str(e), trace=traceback.format_exc())
+            return _error_response(500, "SIGNING_FAILED", f"Échec de la signature: {e}")
+
+        sig_b64 = base64.b64encode(sig).decode("ascii")
+        canonical_b64 = base64.b64encode(canonical_bytes).decode("ascii")
+        log_info("certify.signed", req_id=req_id, alg=alg, sig_format=sig_format, sig_len=len(sig))
+
+        # Certificat optionnel
+        cert_fingerprint_hex, certificate_pem = None, None
+        try:
+            with open(cert_path, "rb") as f:
+                cert_data = f.read()
+            cert = x509.load_pem_x509_certificate(cert_data, backend=default_backend())
+            cert_fingerprint_hex = cert.fingerprint(hashes.SHA256()).hex()
+            certificate_pem = cert_data.decode("utf-8")
+            log_info("certify.cert_loaded",
+                     req_id=req_id,
+                     fp=cert_fingerprint_hex[:32],
+                     not_before=str(getattr(cert, "not_valid_before_utc", getattr(cert, "not_valid_before", None))),
+                     not_after=str(getattr(cert, "not_valid_after_utc", getattr(cert, "not_valid_after", None))))
+        except Exception as e:
+            log_warning("certify.cert_unavailable", req_id=req_id, path=cert_path, error=str(e))
+
+        # Réponse
+        response = {
+            "signed": {
+                "payload": payload,
+                "canonicalB64": canonical_b64,
+                "signatureB64": sig_b64,
+                "algorithm": alg,
+                "signatureFormat": sig_format,
+                "certificateFingerprintSHA256": cert_fingerprint_hex,
+                "certificatePem": certificate_pem,
+            },
+            "generatedAt": issued_at,
+        }
+
+        # Écriture append-only dans le ledger
+        t0 = time.perf_counter()
+        try:
+            ledger_path = os.getenv("MINIMON_SCORE_LEDGER_PATH", "data/certified_scores.jsonl")
+            ledger_dir = os.path.dirname(ledger_path) or "."
+            os.makedirs(ledger_dir, exist_ok=True)
+
+            ledger_record = {
+                "reqId": req_id,
+                "clientIp": client_ip,
+                "generatedAt": issued_at,
+                "payloadCanonical": payload,          # ce qui est signé
+                "payloadCanonicalB64": canonical_b64,
+                "signatureB64": sig_b64,
+                "algorithm": alg,
+                "signatureFormat": sig_format,
+                "certificateFingerprintSHA256": cert_fingerprint_hex,
+                "inputDigestSHA256": input_digest,    # corrélation requête
+                "inputMinified": minified_input,      # version minifiée, sans blobs
+            }
+
+            line = json.dumps(ledger_record, ensure_ascii=False, separators=(",", ":")) + "\n"
+            data = line.encode("utf-8")
+
+            flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+            fd = os.open(ledger_path, flags, 0o640)
+            try:
+                written = os.write(fd, data)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+
+            dt = int((time.perf_counter() - t0) * 1000)
+            log_info("certify.ledger_written",
+                     req_id=req_id, path=ledger_path, bytes=len(data), written=written, elapsed_ms=dt)
+        except Exception as e:
+            log_error("certify.ledger_write_failed",
+                      req_id=req_id,
+                      path=os.getenv("MINIMON_SCORE_LEDGER_PATH", "data/certified_scores.jsonl"),
+                      error=str(e),
+                      trace=traceback.format_exc())
+            return _error_response(500, "LEDGER_WRITE_FAILED", f"Échec d’écriture du registre local: {e}")
+
+        dt_total = int((time.perf_counter() - t_enter) * 1000)
+        log_info("certify.success",
+                 req_id=req_id, alg=alg, sig_format=sig_format, score=score_val,
+                 has_cert=bool(certificate_pem), elapsed_ms=dt_total)
+
+        return JSONResponse(status_code=200, content=response)
+
+    except HTTPException as http_exc:
+        log_warning("certify.http_exception", req_id=req_id, status=http_exc.status_code, detail=str(http_exc.detail))
+        if http_exc.status_code == 401:
+            return _error_response(401, "UNAUTHORIZED", str(http_exc.detail))
+        if http_exc.status_code == 429:
+            return _error_response(429, "RATE_LIMITED", str(http_exc.detail))
+        return _error_response(http_exc.status_code, "HTTP_ERROR", str(http_exc.detail))
+    except Exception as e:
+        log_error("certify.unexpected_error", req_id=req_id, error=str(e))
+        return _error_response(500, "SIGNING_UNEXPECTED_ERROR", "Une erreur est survenue lors de la certification du score.")
+
 
 @app.get("/health")
 async def health():
