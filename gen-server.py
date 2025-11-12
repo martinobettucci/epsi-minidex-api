@@ -26,33 +26,33 @@ from fastapi.middleware.cors import CORSMiddleware
 # ----------------------------
 # .env bootstrap (dump on first run, then load if present)
 # ----------------------------
-ENV_FILE = os.getenv("POKEMON_ENV_FILE", "./env")
+ENV_FILE = os.getenv("MINIMON_ENV_FILE", "./env")
 
 def _env_kv_defaults() -> Dict[str, str]:
     # Defaults must mirror code-level fallbacks
     return {
         # General
-        "POKEMON_IMAGES_DIR": "./pokemon",
-        "POKEMON_IMAGE_PATTERN": "image_{:02d}.png",
-        "POKEMON_MIN_INDEX": "0",
-        "POKEMON_MAX_INDEX": "5",
-        "POKEMON_GENERATION_BACKEND": "files",  # files | sdxl
-        "POKEMON_BEARER_TOKEN": "",
-        "POKEMON_RATE_LIMIT_PER_MIN": "60",
+        "MINIMON_IMAGES_DIR": "./minimon",
+        "MINIMON_IMAGE_PATTERN": "image_{:02d}.png",
+        "MINIMON_MIN_INDEX": "0",
+        "MINIMON_MAX_INDEX": "5",
+        "MINIMON_GENERATION_BACKEND": "files",  # files | sdxl
+        "MINIMON_BEARER_TOKEN": "",
+        "MINIMON_RATE_LIMIT_PER_MIN": "60",
         # SDXL core
         "SDXL_TURBO_MODEL": "stabilityai/sdxl-turbo",
         "SDXL_WIDTH": "512",
         "SDXL_HEIGHT": "512",
         "SDXL_STEPS": "1",
         # SDXL optimizations
-        "SDXL_QUANTIZATION": "fp8",            # fp8 | fp4 | none
+        "SDXL_QUANTIZATION": "fp8",            # fp8 | int8 | int4 | fp4 | none
         "SDXL_USE_COMPILE": "1",               # 1|0
         "SDXL_USE_XFORMERS": "1",              # 1|0
         "SDXL_USE_FLASH_ATTN": "0",            # 1|0
         "SDXL_ENABLE_SLICING": "0",            # 1|0
         "SDXL_ENABLE_CPU_OFFLOAD": "0",        # 1|0
         # Name backend (OpenAI-compatible)
-        "POKEMON_NAME_BACKEND": "local",        # local | remote
+        "MINIMON_NAME_BACKEND": "local",        # local | remote
         "OPENAI_BASE_URL": "http://192.168.0.37:11434/v1",
         "OPENAI_MODEL": "llama3.2:1b",
         "OPENAI_API_KEY": "dummy",
@@ -67,24 +67,24 @@ def _env_kv_defaults() -> Dict[str, str]:
     }
 
 _DEF_COMMENTS = {
-    "POKEMON_IMAGES_DIR": "Dossier des images locales pour le mode 'files'.",
-    "POKEMON_IMAGE_PATTERN": "Patron de nommage des images locales.",
-    "POKEMON_MIN_INDEX": "Index d'image minimal inclusif.",
-    "POKEMON_MAX_INDEX": "Index d'image maximal inclusif.",
-    "POKEMON_GENERATION_BACKEND": "Backend image: files (par défaut) ou sdxl.",
-    "POKEMON_BEARER_TOKEN": "Jeton Bearer optionnel pour sécuriser l'API.",
-    "POKEMON_RATE_LIMIT_PER_MIN": "Quota de requêtes par minute (0 pour désactiver).",
+    "MINIMON_IMAGES_DIR": "Dossier des images locales pour le mode 'files'.",
+    "MINIMON_IMAGE_PATTERN": "Patron de nommage des images locales.",
+    "MINIMON_MIN_INDEX": "Index d'image minimal inclusif.",
+    "MINIMON_MAX_INDEX": "Index d'image maximal inclusif.",
+    "MINIMON_GENERATION_BACKEND": "Backend image: files (par défaut) ou sdxl.",
+    "MINIMON_BEARER_TOKEN": "Jeton Bearer optionnel pour sécuriser l'API.",
+    "MINIMON_RATE_LIMIT_PER_MIN": "Quota de requêtes par minute (0 pour désactiver).",
     "SDXL_TURBO_MODEL": "ID HuggingFace du modèle SDXL Turbo.",
     "SDXL_WIDTH": "Largeur de l'image générée.",
     "SDXL_HEIGHT": "Hauteur de l'image générée.",
     "SDXL_STEPS": "Nombre d'itérations d'inférence (1 pour Turbo).",
-    "SDXL_QUANTIZATION": "Quantization: fp8 (recommandé GPU), fp4 (expérimental), none.",
+    "SDXL_QUANTIZATION": "Quantization: fp8 (GPU recommandé), int8 (poids uniquement), int4 (poids uniquement), fp4 (expérimental), none.",
     "SDXL_USE_COMPILE": "Active torch.compile (1/0).",
     "SDXL_USE_XFORMERS": "Active xFormers mémoire efficiente (1/0).",
     "SDXL_USE_FLASH_ATTN": "Active FlashAttention si installé (1/0).",
     "SDXL_ENABLE_SLICING": "Active attention slicing pour réduire la VRAM (1/0).",
     "SDXL_ENABLE_CPU_OFFLOAD": "Offload vers CPU si VRAM limitée (1/0).",
-    "POKEMON_NAME_BACKEND": "Génération de nom: local ou remote (OpenAI-compatible).",
+    "MINIMON_NAME_BACKEND": "Génération de nom: local ou remote (OpenAI-compatible).",
     "OPENAI_BASE_URL": "URL du serveur OpenAI-compatible (ex: Ollama).",
     "OPENAI_MODEL": "Nom du modèle distant (ex: llama3.2:1b).",
     "OPENAI_API_KEY": "Clé API (peut être factice pour Ollama).",
@@ -103,7 +103,7 @@ def _write_env_if_missing(path: str = ENV_FILE):
     kv = _env_kv_defaults()
     lines = [
         "#",
-        "# Pokémon Image Generator API — configuration",
+        "# Minimon Image Generator API — configuration",
         "#",
         "# Ce fichier a été généré automatiquement au premier démarrage.",
         "# Modifie les valeurs selon ton environnement. Les variables vides",
@@ -151,15 +151,15 @@ _load_env_file(ENV_FILE)
 # ----------------------------
 # Configuration
 # ----------------------------
-IMAGES_DIR = os.getenv("POKEMON_IMAGES_DIR", "./pokemon")
-IMAGE_PATTERN = os.getenv("POKEMON_IMAGE_PATTERN", "image_{:02d}.png")
-MIN_INDEX = int(os.getenv("POKEMON_MIN_INDEX", "0"))
-MAX_INDEX = int(os.getenv("POKEMON_MAX_INDEX", "5"))
+IMAGES_DIR = os.getenv("MINIMON_IMAGES_DIR", "./minimon")
+IMAGE_PATTERN = os.getenv("MINIMON_IMAGE_PATTERN", "image_{:02d}.png")
+MIN_INDEX = int(os.getenv("MINIMON_MIN_INDEX", "0"))
+MAX_INDEX = int(os.getenv("MINIMON_MAX_INDEX", "5"))
 
-GEN_BACKEND = os.getenv("POKEMON_GENERATION_BACKEND", "files").lower().strip()
+GEN_BACKEND = os.getenv("MINIMON_GENERATION_BACKEND", "files").lower().strip()
 
-BEARER_TOKEN = os.getenv("POKEMON_BEARER_TOKEN", "").strip()
-RATE_LIMIT_PER_MIN = int(os.getenv("POKEMON_RATE_LIMIT_PER_MIN", "60"))
+BEARER_TOKEN = os.getenv("MINIMON_BEARER_TOKEN", "").strip()
+RATE_LIMIT_PER_MIN = int(os.getenv("MINIMON_RATE_LIMIT_PER_MIN", "60"))
 WINDOW_SECONDS = 60
 
 SDXL_MODEL_ID = os.getenv("SDXL_TURBO_MODEL", "stabilityai/sdxl-turbo")
@@ -168,7 +168,7 @@ SDXL_HEIGHT = int(os.getenv("SDXL_HEIGHT", "512"))
 SDXL_STEPS = int(os.getenv("SDXL_STEPS", "1"))
 
 # --- New configuration toggles for Blackwell optimizations ---
-SDXL_QUANTIZATION = os.getenv("SDXL_QUANTIZATION", "fp8").lower()  # fp8, fp4, bf16, none
+SDXL_QUANTIZATION = os.getenv("SDXL_QUANTIZATION", "fp8").lower()  # fp8, int8, int4, fp4, bf16, none
 SDXL_USE_COMPILE = os.getenv("SDXL_USE_COMPILE", "1") not in ("0", "false", "False")
 SDXL_USE_XFORMERS = os.getenv("SDXL_USE_XFORMERS", "1") not in ("0", "false", "False")
 SDXL_USE_FLASH_ATTN = os.getenv("SDXL_USE_FLASH_ATTN", "0") not in ("0", "false", "False")
@@ -179,7 +179,7 @@ RARITY_BUCKETS = [
     ("F", 24), ("E", 20), ("D", 16), ("C", 12), ("B", 10), ("A", 8), ("S", 5), ("S+", 1)
 ]
 
-POKEMON_NAMES = [
+MINIMON_NAMES = [
     "Voltadraco", "Aquapyre", "Floraclaw", "Terravault", "Cryosting", "Luminox",
     "Pyroquill", "Nébulo", "Ferromite", "Galefang", "Noctyx", "Solamar",
 ]
@@ -188,7 +188,7 @@ POKEMON_NAMES = [
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://192.168.0.37:11434/v1").rstrip("/")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "llama3.2:1b")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy")
-NAME_BACKEND = os.getenv("POKEMON_NAME_BACKEND", "local").lower().strip()  # "remote" | "local"
+NAME_BACKEND = os.getenv("MINIMON_NAME_BACKEND", "local").lower().strip()  # "remote" | "local"
 OPENAI_TIMEOUT = float(os.getenv("OPENAI_TIMEOUT", "5.0"))  # secondes
 
 # --- Logging runtime flags ---
@@ -219,7 +219,7 @@ class JsonFormatter(logging.Formatter):
             payload["exc_info"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False)
 
-_logger = logging.getLogger("pokemon")
+_logger = logging.getLogger("minimon")
 _handler = logging.StreamHandler()
 _handler.setLevel(LOG_LEVEL)
 if LOG_JSON:
@@ -249,7 +249,7 @@ def log_error(msg: str, **extra):
 # ----------------------------
 # App
 # ----------------------------
-app = FastAPI(title="Pokémon Image Generator API", version="1.2.0")
+app = FastAPI(title="Minimon Image Generator API", version="1.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -281,7 +281,7 @@ def _now_utc_iso() -> str:
 
 def _new_id() -> str:
     b32 = base64.b32encode(uuid.uuid4().bytes).decode("ascii").rstrip("=")
-    return f"pkm_{b32}"
+    return f"mnm_{b32}"
 
 
 def _extract_name(text: str) -> str:
@@ -293,7 +293,7 @@ def _extract_name(text: str) -> str:
     log_debug("extract_name.input", raw_len=raw_len, preview=(text[:80] if text else ""))
     text = (text or "").strip()
     if not text:
-        fallback = random.choice(POKEMON_NAMES)
+        fallback = random.choice(MINIMON_NAMES)
         log_warning("extract_name.empty_text_fallback", fallback=fallback)
         return fallback
     
@@ -328,7 +328,7 @@ def _extract_name(text: str) -> str:
         log_info("extract_name.cleaned_ok", token=parts[0], cleaned_preview=cleaned[:80])
         return parts[0]
     
-    fallback = random.choice(POKEMON_NAMES)
+    fallback = random.choice(MINIMON_NAMES)
     log_warning("extract_name.cleaned_empty_fallback", fallback=fallback)
     return fallback
     
@@ -351,7 +351,7 @@ def _pick_name_remote() -> str:
             {
                 "role": "system",
                 "content": (
-                    "Tu crées un unique nom original de créature façon 'Pokémon', "
+                    "Tu crées un unique nom original de créature façon 'Minimon', "
                     "lisible en français ou pseudo-latin, sans reprendre un nom existant. "
                     "Réponds strictement au format JSON: {\"name\":\"<nom>\"} avec le nom direct exclusivement. "
                     "Exemple: {\"name\":\"GrandFork\"} ou {\"name\":\"Pyromatrix\"} ou encore {\"name\":\"Ectoplasmon\"}. "
@@ -416,7 +416,7 @@ def _pick_name() -> str:
 
     # Génération locale (logique originale)
     if random.random() < 0.7:
-        name = random.choice(POKEMON_NAMES)
+        name = random.choice(MINIMON_NAMES)
     else:
         a = ["Vo", "Aqua", "Flora", "Terra", "Cryo", "Lumi", "Pyro", "Nébu", "Ferro", "Gale", "Noct", "Sola"]
         b = ["ta", "py", "ra", "va", "sto", "nox", "quil", "lo", "mite", "fang", "yx", "mar"]
@@ -528,49 +528,122 @@ def _get_file_image_b64() -> str:
 # ----------------------------
 
 def _apply_fp8_quantization(pipe):
-    """Apply FP8 quantization for Blackwell GPUs"""
+    """Apply FP8 quantization for Blackwell GPUs (poids uniquement)."""
     try:
-        from torchao.quantization import quantize_, int8_weight_only, float8_weight_only
-        
+        from torchao.quantization import quantize_, float8_weight_only
         log_info("quantization.fp8_start", model=SDXL_MODEL_ID)
-        
-        # Quantize UNet (main model)
+
+        if _device != "cuda":
+            log_warning("quantization.fp8_device_warning", msg="FP8 utile principalement sur GPU.")
+
+        # Quantize UNet (principal)
         if hasattr(pipe, 'unet'):
             quantize_(pipe.unet, float8_weight_only())
             log_info("quantization.unet_fp8_done")
-        
+
         # Quantize VAE decoder
-        if hasattr(pipe, 'vae'):
+        if hasattr(pipe, 'vae') and hasattr(pipe.vae, "decoder"):
             quantize_(pipe.vae.decoder, float8_weight_only())
             log_info("quantization.vae_fp8_done")
-        
-        # Text encoders usually stay in higher precision
+
         log_info("quantization.fp8_complete")
         return pipe
-        
+
     except ImportError:
-        log_warning("quantization.torchao_unavailable", 
-                   msg="Install with: pip install torchao")
+        log_warning("quantization.torchao_unavailable",
+                    msg="TorchAO absent. Installe: pip install torchao")
         return pipe
     except Exception as e:
         log_error("quantization.fp8_failed", error=str(e))
         return pipe
 
 
-def _apply_fp4_quantization(pipe):
-    """Apply aggressive FP4 quantization (experimental)"""
+def _apply_int8_quantization(pipe):
+    """Apply INT8 weight-only quantization."""
     try:
-        from transformers import BitsAndBytesConfig
-        
-        log_warning("quantization.fp4_experimental", 
-                   msg="FP4 may degrade image quality significantly")
-        
-        # This requires model reload with quantization config
-        # Not directly applicable to loaded pipelines
-        log_error("quantization.fp4_not_implemented",
-                 msg="FP4 requires model reload - use FP8 instead")
+        from torchao.quantization import quantize_, int8_weight_only
+        log_info("quantization.int8_start", model=SDXL_MODEL_ID)
+
+        if _device != "cuda":
+            log_warning("quantization.int8_device_warning", msg="INT8 poids utiles sur GPU, fonctionnement CPU variable.")
+
+        if hasattr(pipe, 'unet'):
+            quantize_(pipe.unet, int8_weight_only())
+            log_info("quantization.unet_int8_done")
+
+        if hasattr(pipe, 'vae') and hasattr(pipe.vae, "decoder"):
+            quantize_(pipe.vae.decoder, int8_weight_only())
+            log_info("quantization.vae_int8_done")
+
+        log_info("quantization.int8_complete")
         return pipe
-        
+
+    except ImportError:
+        log_warning("quantization.torchao_unavailable",
+                    msg="TorchAO absent. Installe: pip install torchao")
+        return pipe
+    except Exception as e:
+        log_error("quantization.int8_failed", error=str(e))
+        return pipe
+
+
+def _apply_int4_quantization(pipe):
+    """Apply INT4 weight-only quantization.
+    Essaye TorchAO en priorité, sinon journalise un avertissement si indisponible.
+    """
+    # 1) Tentative TorchAO
+    try:
+        from torchao.quantization import quantize_, int4_weight_only  # peut ne pas exister selon la version
+        log_info("quantization.int4_start", model=SDXL_MODEL_ID)
+
+        if _device != "cuda":
+            log_warning("quantization.int4_device_warning", msg="INT4 poids utiles sur GPU, fonctionnement CPU variable.")
+
+        if hasattr(pipe, 'unet'):
+            quantize_(pipe.unet, int4_weight_only())
+            log_info("quantization.unet_int4_done")
+
+        if hasattr(pipe, 'vae') and hasattr(pipe.vae, "decoder"):
+            quantize_(pipe.vae.decoder, int4_weight_only())
+            log_info("quantization.vae_int4_done")
+
+        log_info("quantization.int4_complete")
+        return pipe
+
+    except ImportError:
+        log_warning("quantization.torchao_unavailable",
+                    msg="TorchAO absent ou version sans int4_weight_only. Installe: pip install torchao")
+    except AttributeError:
+        log_warning("quantization.int4_not_supported",
+                    msg="La fonction int4_weight_only n'est pas disponible dans ta version TorchAO.")
+    except Exception as e:
+        log_error("quantization.int4_failed", error=str(e))
+
+    # 2) Fallback: BnB non intrusif, on log si non supporté (rechargement modèle requis pour un support propre)
+    try:
+        import bitsandbytes as bnb  # noqa: F401
+        log_warning(
+            "quantization.int4_bnb_reload_required",
+            msg="INT4 via bitsandbytes requiert un rechargement spécifique des modules Linear, non appliqué dynamiquement. "
+                "Le pipeline actuel continue en précision de base."
+        )
+        return pipe
+    except Exception:
+        log_warning("quantization.int4_no_backend",
+                    msg="Aucun backend int4 disponible. Installe torchao>=dernier ou bitsandbytes>=0.43.")
+        return pipe
+
+
+def _apply_fp4_quantization(pipe):
+    """Apply aggressive FP4 quantization (expérimental)."""
+    try:
+        from transformers import BitsAndBytesConfig  # noqa: F401
+        log_warning("quantization.fp4_experimental",
+                    msg="FP4 peut dégrader fortement la qualité. Rechargement modèle nécessaire.")
+        log_error("quantization.fp4_not_implemented",
+                  msg="FP4 nécessite un rechargement avec config dédiée, non applicable à chaud.")
+        return pipe
+
     except Exception as e:
         log_error("quantization.fp4_failed", error=str(e))
         return pipe
@@ -582,7 +655,7 @@ def _optimize_attention(pipe):
         # Try FlashAttention-3 (Blackwell native)
         if SDXL_USE_FLASH_ATTN:
             try:
-                from flash_attn import flash_attn_func
+                from flash_attn import flash_attn_func  # noqa: F401
                 pipe.unet.set_attn_processor(AttnProcessor2_0())
                 log_info("attention.flash_attn3_enabled")
             except ImportError:
@@ -662,7 +735,8 @@ def _ensure_sdxl_turbo():
             if SDXL_QUANTIZATION == "none":
                 _dtype = torch.bfloat16 if _device == "cuda" else torch.float32
             else:
-                _dtype = torch.float16  # FP8/FP4 work better from FP16 base
+                # Base FP16 pour quants poids-only (fp8/int8/int4/fp4)
+                _dtype = torch.float16
             
             log_info("sdxl.init_start", 
                     device=_device, 
@@ -689,6 +763,10 @@ def _ensure_sdxl_turbo():
             # 1. Quantization (if enabled)
             if SDXL_QUANTIZATION == "fp8" and _device == "cuda":
                 pipe = _apply_fp8_quantization(pipe)
+            elif SDXL_QUANTIZATION == "int8":
+                pipe = _apply_int8_quantization(pipe)
+            elif SDXL_QUANTIZATION == "int4":
+                pipe = _apply_int4_quantization(pipe)
             elif SDXL_QUANTIZATION == "fp4":
                 pipe = _apply_fp4_quantization(pipe)
             
@@ -771,7 +849,7 @@ def _generate_with_sdxl(name: str) -> bytes:
         element = random.choice(elements)
         
         prompt = (
-            f"pokemon-like highly coloured creature named {name}, "
+            f"minimon-like highly coloured creature named {name}, "
             f"clean solid single color background, high detail, "
             f"studio lighting, cute, toyetic, {element}"
         )
@@ -953,7 +1031,7 @@ async def generate(req: Request):
 
     except Exception as e:
         log_error("generate.unexpected_error", error=str(e))
-        return _error_response(500, "GENERATION_FAILED", "Une erreur est survenue lors de la génération du Pokémon.")
+        return _error_response(500, "GENERATION_FAILED", "Une erreur est survenue lors de la génération du Minimon.")
 
 
 @app.get("/health")

@@ -1,30 +1,30 @@
 #
-# Pokémon Image Generator API — configuration
+# Minimon Image Generator API — configuration
 #
 # Ce fichier a été généré automatiquement au premier démarrage.
 # Modifie les valeurs selon ton environnement. Les variables vides
 # gardent les valeurs par défaut intégrées dans le code.
 #
 # Dossier des images locales pour le mode 'files'.
-POKEMON_IMAGES_DIR=./pokemon
+MINIMON_IMAGES_DIR=./minimon
 
 # Patron de nommage des images locales.
-POKEMON_IMAGE_PATTERN=image_{:02d}.png
+MINIMON_IMAGE_PATTERN=image_{:02d}.png
 
 # Index d'image minimal inclusif.
-POKEMON_MIN_INDEX=0
+MINIMON_MIN_INDEX=0
 
 # Index d'image maximal inclusif.
-POKEMON_MAX_INDEX=5
+MINIMON_MAX_INDEX=5
 
 # Backend image: files (par défaut) ou sdxl.
-POKEMON_GENERATION_BACKEND=sdxl
+MINIMON_GENERATION_BACKEND=sdxl
 
 # Jeton Bearer optionnel pour sécuriser l'API.
-POKEMON_BEARER_TOKEN=EPSI
+MINIMON_BEARER_TOKEN=
 
 # Quota de requêtes par minute (0 pour désactiver).
-POKEMON_RATE_LIMIT_PER_MIN=60
+MINIMON_RATE_LIMIT_PER_MIN=60
 
 # ID HuggingFace du modèle SDXL Turbo.
 SDXL_TURBO_MODEL=stabilityai/sdxl-turbo
@@ -57,7 +57,7 @@ SDXL_ENABLE_SLICING=0
 SDXL_ENABLE_CPU_OFFLOAD=0
 
 # Génération de nom: local ou remote (OpenAI-compatible).
-POKEMON_NAME_BACKEND=remote
+MINIMON_NAME_BACKEND=remote
 
 # URL du serveur OpenAI-compatible (ex: Ollama).
 OPENAI_BASE_URL=http://192.168.0.37:11434/v1
