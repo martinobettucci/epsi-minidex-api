@@ -21,7 +21,7 @@ MINIMON_MAX_INDEX=5
 MINIMON_GENERATION_BACKEND=sdxl
 
 # Jeton Bearer optionnel pour sécuriser l'API.
-MINIMON_BEARER_TOKEN=
+MINIMON_BEARER_TOKEN=MINIMONDEMO
 
 # Quota de requêtes par minute (0 pour désactiver).
 MINIMON_RATE_LIMIT_PER_MIN=60

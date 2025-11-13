@@ -252,10 +252,14 @@ def log_error(msg: str, **extra):
 app = FastAPI(title="Minimon Image Generator API", version="1.3.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://minimon.lelabs.tech",
+        "https://minimon-deck-game.netlify.app",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 _requests_window: Dict[str, Deque[datetime]] = defaultdict(deque)
@@ -346,7 +350,7 @@ def _pick_name_remote() -> str:
     payload = {
         "model": OPENAI_MODEL,
         "temperature": 1.05,
-        "max_tokens": 30,  # ✅ Augmenté de 8 à 30
+        "max_tokens": 30,
         "messages": [
             {
                 "role": "system",
@@ -807,21 +811,100 @@ def _ensure_sdxl_turbo():
             log_error("sdxl.init_failed", error=str(e))
             raise RuntimeError(f"SDXL initialization failed: {e}")
 
-
-def _generate_with_sdxl(name: str) -> bytes:
-    """Enhanced generation with optimizations"""
+def _generate_with_sdxl(name: str, rarity: str) -> bytes:
+    """Enhanced generation with rarity-driven styling and adaptive sampling."""
     pipe = _ensure_sdxl_turbo()
-    
+
+    # --- Rareté -> direction artistique + sampling ---
+    RARITY_STYLE = {
+        "F": dict(
+            materials="matte plastic, soft vinyl",
+            lighting="soft studio lighting",
+            background="plain color background",
+            fx="none",
+            composition="centered simple pose",
+            detail="smooth surface, low detail",
+            steps=1, guidance=0.0
+        ),
+        "E": dict(
+            materials="soft vinyl, resin",
+            lighting="soft rim light",
+            background="plain color background",
+            fx="light sparkle",
+            composition="centered pose",
+            detail="subtle lines, mild texture",
+            steps=1, guidance=0.0
+        ),
+        "D": dict(
+            materials="resin, satin finish",
+            lighting="studio rim light",
+            background="soft gradient",
+            fx="light particles",
+            composition="three-quarter view",
+            detail="panel lines, microtexture",
+            steps=1, guidance=0.0
+        ),
+        "C": dict(
+            materials="polished resin",
+            lighting="controlled highlights",
+            background="soft gradient",
+            fx="mist trails",
+            composition="dynamic tilt",
+            detail="engraved seams, shallow emboss",
+            steps=1, guidance=0.0
+        ),
+        "B": dict(
+            materials="glossy resin, coated plastic",
+            lighting="studio rim light",
+            background="gradient backdrop",
+            fx="energy wisps",
+            composition="hero pose",
+            detail="engraved motifs, crisp edges",
+            steps=1, guidance=0.0
+        ),
+        "A": dict(
+            materials="enamel, translucent tips",
+            lighting="dramatic lighting",
+            background="gradient vignette",
+            fx="aura glow, particles",
+            composition="hero pose, close-up",
+            detail="ornamental inlays, layered panels",
+            steps=1, guidance=0.0
+        ),
+        "S": dict(
+            materials="iridescent enamel",
+            lighting="cinematic rim light",
+            background="premium gradient",
+            fx="energy aura, particles",
+            composition="iconic hero pose",
+            detail="fine engravings, complex surface",
+            steps=2, guidance=0.0
+        ),
+        "S+": dict(
+            materials="pearlescent glass, subsurface scattering",
+            lighting="cinematic volumetric light",
+            background="premium gradient with bokeh",
+            fx="mythic aura, god rays",
+            composition="legendary pose, low-angle",
+            detail="intricate filigree, layered armor",
+            steps=4, guidance=0.0
+        ),
+    }
+
+
+
+    # fallback si la clé ne correspond pas exactement
+    cfg = RARITY_STYLE.get(rarity, RARITY_STYLE["C"])
+
     try:
         global _sdxl_warmed_up
-        
-        # Warmup (first run compilation)
+
+        # Warmup (première compilation)
         if not _sdxl_warmed_up:
             with _sdxl_lock:
                 if not _sdxl_warmed_up:
                     log_info("sdxl.warmup_start")
                     t0 = time.perf_counter()
-                    
                     _ = pipe(
                         prompt="warmup",
                         negative_prompt="",
@@ -830,61 +913,85 @@ def _generate_with_sdxl(name: str) -> bytes:
                         num_inference_steps=max(1, SDXL_STEPS),
                         guidance_scale=0.0,
                     ).images[0]
-                    
                     dt = time.perf_counter() - t0
                     log_info("sdxl.warmup_done", elapsed_ms=int(dt * 1000))
                     _sdxl_warmed_up = True
-        
-        # Generation
+
+        # Seed déterministe par appel
         seed = random.randint(0, 2**31 - 1)
         generator = torch.Generator(device=_device).manual_seed(seed)
-        
-        elements = [
-            "with flowing water-inspired features (like fins, bubbles, or aquatic patterns)",
-            "surrounded by warm fire energy (like glowing embers, molten textures, or sparks)",
-            "with earthy details (like moss, stones, leaves, or soil textures)",
-            "with swirling wind effects (like air currents, feathers, or misty trails)"
-        ]
-        
-        element = random.choice(elements)
-        
-        prompt = (
-            f"minimon-like highly coloured creature named {name}, "
-            f"clean solid single color background, high detail, "
-            f"studio lighting, cute, toyetic, {element}"
-        )
-        
-        negative = "text, watermark, logo, nsfw, deformed, extra limbs, low quality, blurry"
 
-        
+        # Éléments (thèmes) inchangés mais compatibles avec la direction
+        elements = [
+            "with flowing water-inspired body features (fins, bubbles, aquatic patterns)",
+            "with fire-inspired body features (glowing embers, molten textures, sparks)",
+            "with earthy-inspired body features (moss, stones, leaves, soil textures)",
+            "with swirling wind-inspired body features (air currents, feathers, misty trails)"
+        ]
+        element = random.choice(elements)
+
+        # Prompt piloté par la rareté
+        base = (
+            f"minimon-like creature named {name}, cute, toyetic"
+        )
+
+        # Palette et contraste légèrement plus marqués pour les raretés élevées
+        palette = "harmonious saturated palette" if rarity in ("A", "S", "S+") else "flat color palette"
+        contrast = "high contrast" if rarity in ("S", "S+") else "moderate contrast"
+
+        prompt = (
+            f"{base}, {element}, {palette}, {contrast}, "
+            f"{cfg['materials']}, {cfg['lighting']}, {cfg['background']}, "
+            f"{cfg['composition']}, {cfg['detail']}"
+        )
+
+        # Show the generated prompt
+        print (prompt)
+
+        # Négatifs renforcés pour réduire les artéfacts
+        negative = (
+            "two or more creatures, text, watermark, logo, signature, caption, frame, border, "
+            "nsfw, gore, deformed, mutated, malformed, disfigured, "
+            "extra limbs, extra fingers, missing fingers, bad anatomy, "
+            "blurry, low quality, low-res, jpeg artifacts, oversaturated, "
+            "cropped, out of frame"
+        )
+
+        # Sampling adaptatif, bornes de sécurité
+        steps = max(1, min(8, cfg["steps"]))
+        guidance = max(0.0, min(2.0, cfg["guidance"]))
+        # Pour SDXL Turbo, guidance faible fonctionne bien. On autorise un peu plus sur S/S+.
+
         t0 = time.perf_counter()
-        
-        with torch.inference_mode():  # Optimization context
+        with torch.inference_mode():
             image = pipe(
                 prompt=prompt,
                 negative_prompt=negative,
                 width=SDXL_WIDTH,
                 height=SDXL_HEIGHT,
-                num_inference_steps=max(1, SDXL_STEPS),
-                guidance_scale=0.0,
+                num_inference_steps=steps,
+                guidance_scale=guidance,
                 generator=generator,
             ).images[0]
-        
         dt = time.perf_counter() - t0
-        
-        log_info("sdxl.generated", 
-                name=name, 
-                seed=seed, 
-                elapsed_ms=int(dt * 1000),
-                quantization=SDXL_QUANTIZATION)
-        
-        # Convert to PNG
+
+        log_info(
+            "sdxl.generated",
+            name=name,
+            seed=seed,
+            rarity=rarity,
+            steps=steps,
+            guidance=guidance,
+            elapsed_ms=int(dt * 1000),
+            quantization=SDXL_QUANTIZATION
+        )
+
         buf = BytesIO()
         image.save(buf, format="PNG")
         return buf.getvalue()
-        
+
     except Exception as e:
-        log_error("sdxl.generate_failed", name=name, error=str(e))
+        log_error("sdxl.generate_failed", name=name, rarity=rarity, error=str(e))
         raise RuntimeError(f"SDXL generation failed: {e}")
 
 
@@ -987,7 +1094,7 @@ async def generate(req: Request):
         t0 = time.perf_counter()
         if GEN_BACKEND == "sdxl":
             try:
-                png_bytes = _generate_with_sdxl(name)
+                png_bytes = _generate_with_sdxl(name, rarity)
             except Exception as e:
                 log_warning("generate.sdxl_failed_fallback_file", error=str(e))
                 img_path = _choose_image_path()
@@ -1037,7 +1144,7 @@ async def generate(req: Request):
 @app.post("/v1/certify-score")
 async def certify_score(req: Request):
     """
-    Reçoit un JSON, signe une charge utile canonique avec la clé privée TLS (certs/key.pem),
+    Reçoit un JSON, signe une charge utile canonique avec la clé privée DÉDIÉE (MINIMON_SIGNING_KEY_PATH),
     enregistre un enregistrement append-only dans un ledger JSONL,
     et renvoie signature + métadonnées de vérification.
     Corps attendu: {"score": <number|string>, "subject": <string optional>, "nonce": <string optional>}
@@ -1063,22 +1170,15 @@ async def certify_score(req: Request):
         client_ip = req.client.host if req.client else "anonymous"
         _rate_limit_check(client_ip)
 
-        # Utilitaires locaux
+        # Utilitaires locaux (inchangés)
         def _minify_for_logs(obj: dict) -> dict:
-            """Retire les gros blobs base64 des logs/ledger et ne garde qu'une empreinte."""
-            def _hash_b64(s: str) -> dict:
-                try:
-                    raw = base64.b64decode(s, validate=False)
-                    return {"sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
-                except Exception:
-                    return {"sha256": hashlib.sha256(s.encode("utf-8")).hexdigest(), "string_len": len(s)}
             def _walk(v, k=""):
                 if isinstance(v, dict):
                     out = {}
                     for kk, vv in v.items():
                         key = kk.lower()
                         if isinstance(vv, str) and len(vv) > 1024 and ("image" in key or "base64" in key):
-                            out[kk] = {"omitted": True, "fingerprint": _hash_b64(vv)}
+                            out[kk] = {"omitted": True}
                         else:
                             out[kk] = _walk(vv, kk)
                     return out
@@ -1110,6 +1210,13 @@ async def certify_score(req: Request):
         if not isinstance(body, dict):
             log_warning("certify.invalid_payload_type", req_id=req_id, got_type=str(type(body)))
             return _error_response(400, "INVALID_PAYLOAD", "Le corps JSON doit être un objet.")
+
+        # --- Schéma strict minimal (pas d'attributs libres) ---
+        allowed_fields = {"score", "subject", "nonce", "deck"}
+        extras = set(body.keys()) - allowed_fields
+        if extras:
+            log_warning("certify.forbidden_fields", req_id=req_id, extras=list(extras))
+            return _error_response(400, "INVALID_PAYLOAD", f"Champs non autorisés: {', '.join(sorted(extras))}")
 
         if "score" not in body:
             log_warning("certify.missing_score", req_id=req_id)
@@ -1149,12 +1256,13 @@ async def certify_score(req: Request):
         input_digest = _sha256_compact_json(minified_input)
         log_debug("certify.input_digest", req_id=req_id, sha256=input_digest)
 
-        # Chemins clé/cert
-        key_path = os.getenv("MINIMON_SSL_KEY_PATH", "certs/key.pem")
-        cert_path = os.getenv("MINIMON_SSL_CERT_PATH", "certs/cert.pem")
+        # --- Clé DÉDIÉE (MINIMON_SIGNING_KEY_PATH) AU LIEU DE LA CLÉ TLS ---
+        key_path = os.getenv("MINIMON_SIGNING_KEY_PATH", "certs/app_signing_key.pem")
+        cert_path = os.getenv("MINIMON_SIGNING_CERT_PATH", "certs/app_signing_cert.pem")
+
         log_debug("certify.paths", req_id=req_id, key_path=key_path, cert_path=cert_path)
 
-        # Chargement clé privée
+        # Chargement clé de signature dédiée
         t0 = time.perf_counter()
         try:
             with open(key_path, "rb") as f:
@@ -1163,11 +1271,11 @@ async def certify_score(req: Request):
         except FileNotFoundError:
             dt = int((time.perf_counter() - t0) * 1000)
             log_error("certify.key_not_found", req_id=req_id, elapsed_ms=dt, path=key_path)
-            return _error_response(500, "KEY_NOT_FOUND", f"Clé privée introuvable: {key_path}")
+            return _error_response(500, "KEY_NOT_FOUND", "Clé de signature indisponible.")
         except Exception as e:
             dt = int((time.perf_counter() - t0) * 1000)
             log_error("certify.key_load_failed", req_id=req_id, elapsed_ms=dt, error=str(e))
-            return _error_response(500, "KEY_LOAD_FAILED", f"Impossible de charger la clé privée: {e}")
+            return _error_response(500, "KEY_LOAD_FAILED", "Impossible de charger la clé de signature.")
 
         key_desc = type(private_key).__name__
         curve = getattr(getattr(private_key, "curve", None), "name", None)
@@ -1208,14 +1316,13 @@ async def certify_score(req: Request):
         canonical_b64 = base64.b64encode(canonical_bytes).decode("ascii")
         log_info("certify.signed", req_id=req_id, alg=alg, sig_format=sig_format, sig_len=len(sig))
 
-        # Certificat optionnel
-        cert_fingerprint_hex, certificate_pem = None, None
+        # Certificat optionnel, on NE RENVOIE PLUS certificatePem (champ sensible supprimé)
+        cert_fingerprint_hex = None
         try:
             with open(cert_path, "rb") as f:
                 cert_data = f.read()
             cert = x509.load_pem_x509_certificate(cert_data, backend=default_backend())
             cert_fingerprint_hex = cert.fingerprint(hashes.SHA256()).hex()
-            certificate_pem = cert_data.decode("utf-8")
             log_info("certify.cert_loaded",
                      req_id=req_id,
                      fp=cert_fingerprint_hex[:32],
@@ -1224,7 +1331,7 @@ async def certify_score(req: Request):
         except Exception as e:
             log_warning("certify.cert_unavailable", req_id=req_id, path=cert_path, error=str(e))
 
-        # Réponse
+        # Réponse, SANS certificatePem
         response = {
             "signed": {
                 "payload": payload,
@@ -1233,12 +1340,11 @@ async def certify_score(req: Request):
                 "algorithm": alg,
                 "signatureFormat": sig_format,
                 "certificateFingerprintSHA256": cert_fingerprint_hex,
-                "certificatePem": certificate_pem,
             },
             "generatedAt": issued_at,
         }
 
-        # Écriture append-only dans le ledger
+        # Écriture append-only dans le ledger (inchangé sauf chemins)
         t0 = time.perf_counter()
         try:
             ledger_path = os.getenv("MINIMON_SCORE_LEDGER_PATH", "data/certified_scores.jsonl")
@@ -1249,14 +1355,14 @@ async def certify_score(req: Request):
                 "reqId": req_id,
                 "clientIp": client_ip,
                 "generatedAt": issued_at,
-                "payloadCanonical": payload,          # ce qui est signé
+                "payloadCanonical": payload,
                 "payloadCanonicalB64": canonical_b64,
                 "signatureB64": sig_b64,
                 "algorithm": alg,
                 "signatureFormat": sig_format,
                 "certificateFingerprintSHA256": cert_fingerprint_hex,
-                "inputDigestSHA256": input_digest,    # corrélation requête
-                "inputMinified": minified_input,      # version minifiée, sans blobs
+                "inputDigestSHA256": input_digest,
+                "inputMinified": minified_input,
             }
 
             line = json.dumps(ledger_record, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -1284,7 +1390,7 @@ async def certify_score(req: Request):
         dt_total = int((time.perf_counter() - t_enter) * 1000)
         log_info("certify.success",
                  req_id=req_id, alg=alg, sig_format=sig_format, score=score_val,
-                 has_cert=bool(certificate_pem), elapsed_ms=dt_total)
+                 has_cert=bool(cert_fingerprint_hex), elapsed_ms=dt_total)
 
         return JSONResponse(status_code=200, content=response)
 
