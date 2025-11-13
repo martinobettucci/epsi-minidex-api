@@ -393,7 +393,3 @@ Idées : nouveaux modèles, cache Redis, i18n des prompts, interface web, métri
 
 **Version API** : 1.3.0
 **Dernière mise à jour** : 12 novembre 2025
-
----
-
-Si tu veux ensuite un **changelog complet**, un **README minimaliste**, ou une **version anglaise**, je peux les produire.
