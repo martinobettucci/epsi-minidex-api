@@ -30,10 +30,10 @@ MINIMON_RATE_LIMIT_PER_MIN=60
 SDXL_TURBO_MODEL=stabilityai/sdxl-turbo
 
 # Largeur de l'image générée.
-SDXL_WIDTH=512
+SDXL_WIDTH=384
 
 # Hauteur de l'image générée.
-SDXL_HEIGHT=512
+SDXL_HEIGHT=384
 
 # Nombre d'itérations d'inférence (1 pour Turbo).
 SDXL_STEPS=1
@@ -42,10 +42,10 @@ SDXL_STEPS=1
 SDXL_QUANTIZATION=none
 
 # Active torch.compile (1/0).
-SDXL_USE_COMPILE=0
+SDXL_USE_COMPILE=1
 
 # Active xFormers mémoire efficiente (1/0).
-SDXL_USE_XFORMERS=1
+SDXL_USE_XFORMERS=0
 
 # Active FlashAttention si installé (1/0).
 SDXL_USE_FLASH_ATTN=1

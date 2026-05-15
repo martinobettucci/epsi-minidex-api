@@ -878,7 +878,7 @@ def _generate_with_sdxl(name: str, rarity: str) -> bytes:
             fx="energy aura, particles",
             composition="iconic hero pose",
             detail="fine engravings, complex surface",
-            steps=2, guidance=0.0
+            steps=1, guidance=0.0
         ),
         "S+": dict(
             materials="pearlescent glass, subsurface scattering",
@@ -887,7 +887,7 @@ def _generate_with_sdxl(name: str, rarity: str) -> bytes:
             fx="mythic aura, god rays",
             composition="legendary pose, low-angle",
             detail="intricate filigree, layered armor",
-            steps=4, guidance=0.0
+            steps=1, guidance=0.0
         ),
     }
 

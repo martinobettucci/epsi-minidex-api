@@ -1,0 +1,21 @@
+services:
+  minimon:
+    build: .
+    image: minimonapi:latest
+    container_name: minimon-api
+    ports:
+      - "22222:22222"
+    runtime: nvidia
+    environment:
+      RUNTIME: jetson
+      MINIMON_GENERATION_BACKEND: sdxl
+      MINIMON_BEARER_TOKEN: MINIMONDEMO
+      MINIMON_RATE_LIMIT_PER_MIN: 60
+      MINIMON_NAME_BACKEND: local
+      LOG_LEVEL: INFO
+      LOG_JSON: "1"
+      SDXL_TURBO_MODEL: stabilityai/sdxl-turbo
+    volumes:
+      - ./minimon:/app/minimon:ro
+      - ./certs:/app/certs:ro
+    restart: unless-stopped
